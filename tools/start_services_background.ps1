@@ -2,10 +2,11 @@
 # Starts both YOLO Edge Sentinel (5050) and ReJivan Web Server (8080) silently in the background
 $root = Split-Path -Parent $PSScriptRoot
 
-# Locate Python
-$python = "python.exe"
-if (Test-Path "C:\Program Files\Python312\python.exe") {
-    $python = "C:\Program Files\Python312\python.exe"
+# Locate Python — prefer the project's local venv (CUDA torch + ultralytics).
+$python = Join-Path $root ".venv\Scripts\python.exe"
+if (-not (Test-Path $python)) {
+    Write-Host "[!] .venv not found - falling back to system python (YOLO may run on CPU)." -ForegroundColor Yellow
+    $python = "python.exe"
 }
 
 # Locate Node

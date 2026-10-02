@@ -4,7 +4,7 @@
 // --- START: prototype\movement-engine.js ---
 // prototype/movement-engine.js
 // ReJivan Unified Motion Kinematics, Hypothesis Scoring, Counterfactual Reasoning & Sensor Fusion Engine
-// Compatible with both browser (MediaPipe / Optical Flow) and edge hardware (YOLO11-Pose via GTX 1650)
+// Compatible with both browser (MediaPipe / Optical Flow) and edge hardware (YOLO11-Pose via local CUDA GPU)
 // Architectural flow: OBSERVE -> RECONSTRUCT -> CORROBORATE -> REASON -> VERIFY -> RESPOND
 
 (function (root, factory) {
@@ -3319,7 +3319,7 @@ const IncidentReconstructionPanel = ({ onTriggerVerification, currentVitals }) =
               <span className={`w-2 h-2 rounded-full ${visionEngine === "yolo" ? "bg-emerald-200 animate-pulse" : "bg-slate-400"}`}></span>
               <span>YOLO11 Edge</span>
               <span className="text-[9px] opacity-80 uppercase px-1 py-0.2 bg-black/20 rounded">
-                GTX 1650
+                Local GPU
               </span>
             </button>
             <button
@@ -3350,7 +3350,7 @@ const IncidentReconstructionPanel = ({ onTriggerVerification, currentVitals }) =
           <CheckCircle2 className={`w-4 h-4 ${visionEngine === "yolo" ? "text-emerald-600" : "text-blue-600"}`} />
           {visionEngine === "yolo" ? (
             <span>
-              <strong>Primary Vision Engine Active:</strong> YOLO11-Pose · Local NVIDIA GeForce GTX 1650 4GB GPU Acceleration (58 FPS · 184MB VRAM)
+              <strong>Primary Vision Engine Active:</strong> YOLO11-Pose · Local CUDA GPU Acceleration (Auto-Detected Edge Hardware · 17 COCO Keypoints)
             </span>
           ) : (
             <span>
@@ -3975,6 +3975,10 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
   const [localYoloActive, setLocalYoloActive] = React.useState(false);
   const [localYoloInfo, setLocalYoloInfo] = React.useState(null);
 
+  // GPU identity is reported live by the edge daemon (torch.cuda device name).
+  // Never hardcode a GPU model here — this UI runs on whatever machine is deployed.
+  const gpuLabel = localYoloInfo?.device || "Local CUDA GPU";
+
   // Infrastructure & Sensor Health State
   const [systemHealth, setSystemHealth] = React.useState({
     edgeStatus: "EDGE_OFFLINE",
@@ -4145,7 +4149,7 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
     evidence: ["Patient resting supine within mattress perimeter", "Zero downward velocity"],
     counterEvidence: ["Supine bed rest intentional", "Stable vitals baseline"],
     visionSource: "Ultralytics YOLO11-Pose",
-    hardwareBadge: "GTX 1650 CUDA Ingestion",
+    hardwareBadge: "Edge CUDA Ingestion",
     consensusSummary: "Patient resting safely in care bed. Baseline optical monitoring active."
   });
 
@@ -4154,6 +4158,7 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
   const canvasElementRef = React.useRef(null);
   const webcamStreamRef = React.useRef(null);
   const animFrameRef = React.useRef(null);
+  const lastTelemetryAtRef = React.useRef(Date.now());
   const prevFrameDataRef = React.useRef(null);
   const prevCentroidYRef = React.useRef(null);
   const lastTimeRef = React.useRef(Date.now());
@@ -4312,6 +4317,7 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
         });
         if (res.ok && !isCancelled) {
           const data = await res.json();
+          lastTelemetryAtRef.current = Date.now();
           const isHighRisk = data.risk_level === "HIGH_RISK";
           const isCaution = data.risk_level === "CAUTION";
           setTelemetry((prev) => ({
@@ -4332,8 +4338,8 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
             probableMechanism: data.canonical_event?.probableMechanism || data.probable_mechanism || "NORMAL_ACTIVITY",
             evidence: data.evidence && data.evidence.length > 0 ? data.evidence : prev.evidence,
             counterEvidence: data.counter_evidence && data.counter_evidence.length > 0 ? data.counter_evidence : prev.counterEvidence,
-            visionSource: `${data.device || "NVIDIA GTX 1650"} (Ultralytics YOLO11-Pose)`,
-            hardwareBadge: data.cuda_enabled ? "GTX 1650 CUDA Ingestion" : "Local Edge CPU",
+            visionSource: `${data.device || "Auto-detected CUDA GPU"} (Ultralytics YOLO11-Pose)`,
+            hardwareBadge: data.cuda_enabled ? `${data.device || "CUDA"} Ingestion` : "Local Edge CPU",
             consensusSummary: data.hypothesis?.mechanism || "Continuous YOLO-Pose kinematics monitoring active."
           }));
 
@@ -4365,6 +4371,25 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
       clearInterval(timer);
     };
   }, [localYoloActive, hardwareStreamPaused, onTriggerVerification, onTriggerAlert, localYoloInfo]);
+
+  // --- Stalled-stream watchdog ----------------------------------------------
+  // The hardware MJPEG <img> stream can stall WITHOUT firing onError: the TCP
+  // socket stays open but no further frames arrive, so the video sits frozen on
+  // its last frame forever and monitoring appears to stop after the first frame.
+  // If telemetry goes quiet while hardware streaming, force a stream reconnect
+  // so monitoring recovers on its own instead of needing a manual refresh.
+  React.useEffect(() => {
+    if (!localYoloActive || hardwareStreamPaused) return;
+    if (!(cameraSource === "LIVE_WEBCAM" && liveCameraMode === "HARDWARE_YOLO")) return;
+    const id = setInterval(() => {
+      const silentFor = Date.now() - lastTelemetryAtRef.current;
+      if (silentFor > 5000) {
+        lastTelemetryAtRef.current = Date.now(); // debounce before retrying
+        setStreamRetryKey(Date.now());
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [localYoloActive, hardwareStreamPaused, cameraSource, liveCameraMode]);
 
   // Switch Camera Source
   const handleSelectSource = async (newSource) => {
@@ -4900,7 +4925,7 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
             evidence: k.evidence && k.evidence.length > 0 ? k.evidence : prev.evidence,
             counterEvidence: k.counter_evidence && k.counter_evidence.length > 0 ? k.counter_evidence : prev.counterEvidence,
             visionSource: "Ultralytics YOLO11-Pose (17 Joints)",
-            hardwareBadge: "GTX 1650 CUDA Ingestion",
+            hardwareBadge: "Edge CUDA Ingestion",
             consensusSummary: k.consensus_summary || "Real-time pose tracking operational."
           }));
         } else {
@@ -5135,7 +5160,7 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
               {localYoloActive ? (
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 flex items-center gap-1 animate-pulse">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                  GTX 1650 CUDA Connected
+                  {gpuLabel} CUDA Connected
                 </span>
               ) : (
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
@@ -5255,8 +5280,8 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
             </div>
             <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
               <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block">Hardware</span>
-              <span className="text-[11px] font-bold text-slate-800 truncate block mt-0.5" title={localYoloActive ? "NVIDIA GeForce GTX 1650 CUDA" : "DirectShow / CPU"}>
-                {localYoloActive ? "GTX 1650" : "CPU Engine"}
+              <span className="text-[11px] font-bold text-slate-800 truncate block mt-0.5" title={localYoloActive ? gpuLabel : "DirectShow / CPU"}>
+                {localYoloActive ? gpuLabel : "CPU Engine"}
               </span>
             </div>
             <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
@@ -5430,7 +5455,7 @@ const CameraZonesView = ({ onTriggerAlert, onTriggerVerification, currentUser, a
               <div className="flex items-center gap-2">
                 <h4 className="text-xs font-bold text-slate-900 truncate">
                   {cameraSource === "LIVE_WEBCAM"
-                    ? (localYoloActive ? "Hardware YOLO-Pose Sentinel (NVIDIA GTX 1650 CUDA)" : "Live Device Webcam Sentinel (Real-Time Optical Flow)")
+                    ? (localYoloActive ? `Hardware YOLO-Pose Sentinel (${gpuLabel})` : "Live Device Webcam Sentinel (Real-Time Optical Flow)")
                     : cameraSource === "PRERECORDED_VIDEO"
                     ? (customVideoFileName ? `Demonstration Video Sentinel · ${customVideoFileName}` : "Clinical Demonstration Sentinel · Pre-Recorded Bed-Fall Footage")
                     : (currentUser?.role === "nurse" ? "RTSP Hospital Ward CCTV · Bed 01" : "RTSP Home CCTV · Main Zone")}

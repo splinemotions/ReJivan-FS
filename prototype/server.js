@@ -865,7 +865,10 @@ app.post("/api/edge/heartbeat", (req, res) => {
 });
 
 // ---- System Infrastructure Health (7-Tier Status Hierarchy) ----------------
-app.get(["/api/system/health", "/api/system-health"], (req, res) => {
+// Local YOLO edge daemon (may or may not be running on this host).
+const EDGE_DAEMON_BASE = process.env.REJIVAN_EDGE_BASE || "http://127.0.0.1:5050";
+
+app.get(["/api/system/health", "/api/system-health"], async (req, res) => {
   const now = Date.now();
   const timeSinceHeartbeat = now - (latestEdgeHeartbeat.lastReceived || latestEdgeHeartbeat.timestamp || now);
   const isEdgeStale = timeSinceHeartbeat > 8000;
@@ -890,6 +893,30 @@ app.get(["/api/system/health", "/api/system-health"], (req, res) => {
     bannerSeverity = "info";
   }
 
+  // Vision hardware is reported by the edge daemon itself — its /api/yolo/status
+  // carries the real torch.cuda device name. Never hardcode a GPU model here:
+  // this host may be CPU-only, and the daemon may run on different hardware.
+  // Prefer the ingested heartbeat; otherwise probe the local daemon directly.
+  let edgeDevice = latestEdgeHeartbeat.device;
+  let edgeCuda = latestEdgeHeartbeat.cudaEnabled;
+  if (!edgeDevice) {
+    try {
+      const probe = await fetch(`${EDGE_DAEMON_BASE}/api/yolo/status`, {
+        signal: AbortSignal.timeout(1200)
+      });
+      if (probe.ok) {
+        const info = await probe.json();
+        edgeDevice = info.device;
+        edgeCuda = info.cuda_enabled;
+      }
+    } catch (e) {
+      // Daemon not reachable on this host — fall through to the generic label.
+    }
+  }
+  const edgeDeviceLabel = edgeDevice
+    ? `${edgeDevice} (${edgeCuda ? "CUDA" : "CPU"})`
+    : "Auto-detected NVIDIA CUDA GPU / CPU Fallback";
+
   res.json({
     ok: true,
     timestamp: now,
@@ -899,7 +926,7 @@ app.get(["/api/system/health", "/api/system-health"], (req, res) => {
         name: latestEdgeHeartbeat.name || "ReJivan GB Pant Hospital Edge Sentinel",
         status: edgeStatus,
         lastHeartbeatAgeMs: timeSinceHeartbeat,
-        host: "NVIDIA GeForce GTX 1650 (CUDA / CPU Edge Node)"
+        host: edgeDeviceLabel
       },
       cameras: cameraInventory.map((c) => ({
         ...c,
@@ -915,7 +942,7 @@ app.get(["/api/system/health", "/api/system-health"], (req, res) => {
       visionModel: {
         engine: "Ultralytics YOLO11-Pose",
         status: edgeStatus === "OFFLINE" ? "STANDBY" : "ONLINE",
-        device: "NVIDIA GeForce GTX 1650 (4GB VRAM) / DirectShow / CPU Fallback"
+        device: edgeDeviceLabel
       },
       tracking: {
         status: (edgeStatus === "ONLINE" && camState === "ONLINE") ? "ACTIVE" : "STANDBY",
@@ -947,7 +974,7 @@ app.get(["/api/system/health", "/api/system-health"], (req, res) => {
       edgeDaemon: {
         targetPort: 5050,
         expectedEngine: "Ultralytics YOLO11-Pose",
-        cudaHardwareTarget: "NVIDIA GeForce GTX 1650 4GB",
+        cudaHardwareTarget: edgeDeviceLabel,
         heartbeatPath: "/api/yolo/heartbeat",
         status: edgeStatus
       },

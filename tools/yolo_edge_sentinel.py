@@ -1,6 +1,6 @@
 # tools/yolo_edge_sentinel.py
 # ReJivan Real Edge Sentinel Daemon
-# Powered by Ultralytics YOLO-Pose on System Hardware (NVIDIA GeForce GTX 1650 CUDA / CPU Pipeline)
+# Powered by Ultralytics YOLO-Pose on System Hardware (NVIDIA CUDA GPU when available, else CPU Pipeline)
 # Unified Camera-Ingestion Architecture: LOCAL_WEBCAM, RTSP_CCTV, and PRERECORDED_VIDEO
 # All sources feed the exact same downstream pose inference, temporal kinematics, and event reconstruction.
 
@@ -57,8 +57,38 @@ from camera_providers import (
 print("=" * 76)
 print("   ReJivan Real Edge Sentinel Daemon - Ultralytics YOLO-Pose")
 print("   Unified Camera Ingestion Architecture: WEBCAM | RTSP CCTV | VIRTUAL VIDEO")
-print("   Hardware Platform: NVIDIA GeForce GTX 1650 (CUDA) & Optimized CPU Pipeline")
+print("   Hardware Platform: Auto-detected NVIDIA CUDA GPU (or Optimized CPU Pipeline)")
 print("=" * 76)
+
+# --- Single-instance guard ---------------------------------------------------
+# Checked BEFORE the ~20s model load so a duplicate launch fails fast.
+# Two sentinels sharing port 5050 break the live camera stream on Windows
+# (see SingleInstanceHTTPServer below for the full explanation).
+EDGE_PORT = int(os.environ.get("REJIVAN_EDGE_PORT", "5050"))
+
+
+def _edge_port_in_use(port):
+    """True if something is already accepting connections on 127.0.0.1:port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(1.0)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+# Only enforced when this file is RUN as the daemon. The test suites import this
+# module (from yolo_edge_sentinel import compute_kinematics, hub) and must keep
+# working even while a daemon is already serving on 5050.
+if __name__ == "__main__" and _edge_port_in_use(EDGE_PORT):
+    print("")
+    print(f"[!] Port {EDGE_PORT} is ALREADY IN USE.")
+    print("[!] Another ReJivan Edge Sentinel is most likely still running.")
+    print("[!] Refusing to start a second instance - two daemons on one port")
+    print("[!] split the camera stream and make it freeze after the first frame.")
+    print("")
+    print("[*] Stop the other instance first:")
+    print("[*]     tools\\stop_yolo.bat")
+    print("[*] ...or close the window that is running yolo_edge_sentinel.py.")
+    print("")
+    sys.exit(1)
 
 # Hardware & Model Configuration
 CUDA_AVAILABLE = torch.cuda.is_available()
@@ -1687,9 +1717,39 @@ class SentinelRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps({"ok": False, "error": "Endpoint not found"}).encode("utf-8"))
 
-def run_server(port=5050):
+class SingleInstanceHTTPServer(ThreadingHTTPServer):
+    """
+    HTTP server that REFUSES to share its port.
+
+    Python's ThreadingHTTPServer inherits allow_reuse_address = True, which sets
+    SO_REUSEADDR. On Linux that only allows rebinding a socket in TIME_WAIT; on
+    WINDOWS it lets a SECOND process bind a port that is already actively
+    listening. Two sentinels then split incoming connections unpredictably, each
+    with its own independent camera state - which reaches the browser as a live
+    stream that freezes on its first frame while telemetry stalls.
+
+    Setting this False makes a second instance fail loudly instead.
+    """
+    allow_reuse_address = False
+    daemon_threads = True
+
+
+def run_server(port=EDGE_PORT):
+    # Re-checked here as well: the port could have been taken during the model
+    # load above. (The fast path is the early guard near the top of the file.)
+    if _edge_port_in_use(port):
+        print(f"\n[!] Port {port} became occupied while loading. Refusing to start.")
+        print("[!] Run tools\\stop_yolo.bat and retry.\n")
+        sys.exit(1)
+
     server_address = ("0.0.0.0", port)
-    httpd = ThreadingHTTPServer(server_address, SentinelRequestHandler)
+    try:
+        httpd = SingleInstanceHTTPServer(server_address, SentinelRequestHandler)
+    except OSError as e:
+        print(f"\n[!] Could not bind port {port}: {e}")
+        print("[!] Another process is using it. Run tools\\stop_yolo.bat and retry.\n")
+        sys.exit(1)
+
     print(f"\n[+] ReJivan Edge Sentinel REST API & MJPEG Server listening on 0.0.0.0:{port}")
     print(f"[*] Discovery URL: http://127.0.0.1:{port}/api/yolo/status")
     print(f"[*] Heartbeat URL: http://127.0.0.1:{port}/api/yolo/heartbeat")

@@ -1,0 +1,35 @@
+# ReJivan vision runtime — pinned dependency set for tools/yolo_edge_sentinel.py
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# On Windows, the `torch` wheel on PyPI is the CPU-ONLY build (~124 MB).
+# The CUDA build is served ONLY from the PyTorch index, and its version carries
+# a "+cuXXX" local tag. Because the two share a version number, pip will happily
+# REPLACE the CUDA build with the CPU one when resolving another package:
+#
+#     pip install ultralytics
+#       -> Uninstalling torch-2.11.0+cu128
+#       -> Successfully installed torch-2.14.1   (CPU-only!)
+#
+# That silently downgrades YOLO from GPU to CPU inference. Pinning the "+cu128"
+# local versions below makes that substitution impossible: no version on PyPI
+# satisfies "2.11.0+cu128", so pip must take it from the CUDA index.
+#
+# INSTALL (run from the repo root):
+#   python -m venv .venv
+#   .venv\Scripts\python.exe -m pip install -r tools\requirements-vision.txt ^
+#       --extra-index-url https://download.pytorch.org/whl/cu128
+#
+# VERIFY (must print True and a GPU name):
+#   .venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+
+# --- CUDA runtime (must come from https://download.pytorch.org/whl/cu128) ---
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+
+# --- Vision stack ---
+ultralytics==8.4.171
+opencv-python==5.0.0.93
+
+# --- Numerics ---
+numpy==2.5.3

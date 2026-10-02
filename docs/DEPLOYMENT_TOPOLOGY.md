@@ -19,7 +19,7 @@ flowchart TD
         SRC_VIRTUAL["🎥 Virtual Camera Source<br/>(Prerecorded Clinical Video)"]
     end
 
-    subgraph EDGELAYER["2. On-Premises Edge Sentinel Node (GTX 1650 / CPU)"]
+    subgraph EDGELAYER["2. On-Premises Edge Sentinel Node (CUDA GPU / CPU)"]
         NORM["Frame / Timestamp Normalization<br/>(NormalizedFrame Contract)"]
         ISOLATION["TrackingContext Isolation<br/>(Per-Camera Kinematic State)"]
         POSE["YOLO11-Pose Inference<br/>(17 COCO Keypoints @ 25-30 FPS)"]
@@ -91,7 +91,7 @@ In a real hospital (such as GB Pant Hospital in Port Blair), ReJivan interfaces 
 ```
 [Ward 302 IP Dome Camera]  ──(RTSP/H.264 over LAN)──┐
 [Ward 303 IP Bullet Camera] ──(RTSP/H.264 over LAN)──┼──> [ReJivan Edge Gateway]
-[Ward 304 IP PTZ Camera]   ──(RTSP/H.264 over LAN)──┘     (GTX 1650 or Jetson Orin)
+[Ward 304 IP PTZ Camera]   ──(RTSP/H.264 over LAN)──┘     (CUDA GPU or Jetson Orin)
                                                                     │
                                                                     │ Local YOLO-Pose Inference
                                                                     │ Kinematics & Hypothesis Engine
@@ -124,7 +124,7 @@ ReJivan was engineered to accommodate diverse presentation constraints without c
 - **Execution:** The browser executes optical motion vector differencing, 7 temporal stages, 3 distinct confidences, and the resident verification dialog with **zero terminal commands or local software required**.
 
 ### Path B: Dedicated Edge Hardware Acceleration Path
-- **Target:** Local laptop with NVIDIA GeForce GTX 1650 GPU (4GB VRAM).
+- **Target:** Local laptop with an NVIDIA CUDA GPU (auto-detected by PyTorch; falls back to CPU if none is present). Current development machine: NVIDIA GeForce RTX 4060 Laptop GPU (8GB VRAM).
 - **Mechanism:** Run `Start-ReJivan.bat` or `python tools/yolo_edge_sentinel.py`.
 - **Execution:** Ultralytics YOLO11-Pose runs locally at 25–30 FPS on CUDA. The web dashboard auto-discovers port `5050` and visualizes genuine 17-point skeletal wireframes and on-demand DPDP privacy radar.
 

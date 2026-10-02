@@ -184,7 +184,7 @@
   <div class="card card-info">
     <h3 style="margin-top:0;">Layer 2: Edge Vision & Spatial Kinematics</h3>
     <ul>
-      <li>Ultra-low latency <strong>Ultralytics YOLO-Pose</strong> on local hardware (NVIDIA GeForce GTX 1650 CUDA) tracking 17 COCO skeletal joints.</li>
+      <li>Ultra-low latency <strong>Ultralytics YOLO-Pose</strong> on local hardware (auto-detected NVIDIA CUDA GPU) tracking 17 COCO skeletal joints.</li>
       <li><strong>DPDP Act 2023 Compliance:</strong> Zero video recording or off-site cloud streaming; physical camera LED turns OFF when monitoring is paused.</li>
       <li>Universal in-browser optical differencing fallback with multi-frame descent corroboration and floor-level gating.</li>
       <li>Bidirectional frame bridge (<code>/api/yolo/process_frame</code>) for seamless browser skeleton overlays.</li>
@@ -210,7 +210,7 @@
     <td><strong>Edge Vision Sentinel</strong></td>
     <td><span class="badge badge-green">ACTIVE (CUDA)</span></td>
     <td>Python 3.12, PyTorch, YOLO11-Pose, OpenCV</td>
-    <td>Runs on port 5050 on NVIDIA GTX 1650 GPU at 25–30 FPS with ~184 MB VRAM footprint.</td>
+    <td>Runs on port 5050 on the local NVIDIA CUDA GPU at 25–30 FPS with ~184 MB VRAM footprint.</td>
   </tr>
   <tr>
     <td><strong>Kinematics & Hypotheses</strong></td>
@@ -265,7 +265,7 @@
 <h3>B. Advanced Computer Vision & Edge AI Capabilities</h3>
 <ul>
   <li>
-    <strong>NVIDIA GeForce GTX 1650 Hardware Acceleration:</strong> Deployed Ultralytics YOLO-Pose locally via PyTorch CUDA. The sentinel achieves 25–30 FPS real-time pose extraction with low latency (&lt;28ms inference) and ultra-lightweight GPU memory consumption (~184 MB VRAM).
+    <strong>NVIDIA CUDA Hardware Acceleration:</strong> Deployed Ultralytics YOLO-Pose locally via PyTorch CUDA. The sentinel achieves 25–30 FPS real-time pose extraction with low latency (&lt;28ms inference) and ultra-lightweight GPU memory consumption (~184 MB VRAM).
   </li>
   <li>
     <strong>17 COCO Skeletal Joint Kinematics:</strong> Continuously extracts coordinates for nose, eyes, ears, shoulders, elbows, wrists, hips, knees, and ankles. Real-time mathematical estimators calculate upper-torso inclination angle, center-of-mass descent velocity ($dy/dt$), and post-impact immobility.
@@ -327,7 +327,7 @@
   <tr>
     <td><strong>YOLO-Pose Edge Vision</strong></td>
     <td><span class="pill pill-green">100% REAL</span></td>
-    <td>Real Ultralytics YOLO-Pose model running via PyTorch CUDA on physical NVIDIA GTX 1650 GPU. Real webcam frames captured via OpenCV.</td>
+    <td>Real Ultralytics YOLO-Pose model running via PyTorch CUDA on a physical NVIDIA CUDA GPU. Real webcam frames captured via OpenCV.</td>
     <td>None. The vision inference, joint coordinates, and kinematics math are completely real.</td>
   </tr>
   <tr>
@@ -393,7 +393,7 @@
     <ul>
       <li>Dynamic physiological drift engine with live animated SVG trend sparklines.</li>
       <li>Deterministic clinical NEWS2/MEWS scoring with consecutive verification.</li>
-      <li>Real Ultralytics YOLO-Pose on NVIDIA GTX 1650 CUDA capturing physical body motion.</li>
+      <li>Real Ultralytics YOLO-Pose on a local NVIDIA CUDA GPU capturing physical body motion.</li>
       <li>9-way hypothesis arbitration with counterfactual explanations and verification modal.</li>
       <li>Continuous uninterrupted pose stream with debounced watchdog &amp; thread-safe locks.</li>
       <li>DPDP Act 2023 on-demand privacy radar extinguishing camera LED when stopped.</li>
@@ -527,7 +527,7 @@
   <tr>
     <td><strong>2. Technical Strength</strong></td>
     <td>Combines edge computer vision (YOLO-Pose with CUDA GPU acceleration), mathematical kinematics, and deterministic clinical deterioration scoring (NEWS2).</td>
-    <td>Runs real-time at 25–30 FPS on NVIDIA GTX 1650 with 17 skeletal keypoints, 9-hypothesis Bayesian scoring, and debounced watchdog.</td>
+    <td>Runs real-time at 25–30 FPS on a local NVIDIA CUDA GPU with 17 skeletal keypoints, 9-hypothesis Bayesian scoring, and debounced watchdog.</td>
   </tr>
   <tr>
     <td><strong>3. Functionality & Execution</strong></td>

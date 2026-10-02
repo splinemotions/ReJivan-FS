@@ -196,7 +196,7 @@ const IncidentReconstructionPanel = ({ onTriggerVerification, currentVitals }) =
               <span className={`w-2 h-2 rounded-full ${visionEngine === "yolo" ? "bg-emerald-200 animate-pulse" : "bg-slate-400"}`}></span>
               <span>YOLO11 Edge</span>
               <span className="text-[9px] opacity-80 uppercase px-1 py-0.2 bg-black/20 rounded">
-                GTX 1650
+                Local GPU
               </span>
             </button>
             <button
@@ -227,7 +227,7 @@ const IncidentReconstructionPanel = ({ onTriggerVerification, currentVitals }) =
           <CheckCircle2 className={`w-4 h-4 ${visionEngine === "yolo" ? "text-emerald-600" : "text-blue-600"}`} />
           {visionEngine === "yolo" ? (
             <span>
-              <strong>Primary Vision Engine Active:</strong> YOLO11-Pose · Local NVIDIA GeForce GTX 1650 4GB GPU Acceleration (58 FPS · 184MB VRAM)
+              <strong>Primary Vision Engine Active:</strong> YOLO11-Pose · Local CUDA GPU Acceleration (Auto-Detected Edge Hardware · 17 COCO Keypoints)
             </span>
           ) : (
             <span>

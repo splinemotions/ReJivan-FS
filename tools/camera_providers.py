@@ -466,7 +466,7 @@ class LocalWebcamSource(CameraSource):
 class RtspCctvSource(CameraSource):
     """
     Production-grade RTSP IP Camera and NVR/VMS Stream Source.
-    Runs locally on the ReJivan Edge Node (GTX 1650 or CPU) — never uploads raw video.
+    Runs locally on the ReJivan Edge Node (CUDA GPU or CPU) — never uploads raw video.
     Features:
       - Strict credential masking in all logs, health outputs, and diagnostics.
       - Automatic reconnect with bounded retry count and exponential backoff.

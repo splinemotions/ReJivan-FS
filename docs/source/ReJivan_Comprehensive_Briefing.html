@@ -212,8 +212,8 @@
 <div class="card">
   <h3>Developer Machine Specifications</h3>
   <ul>
-    <li><strong>GPU:</strong> NVIDIA GeForce GTX 1650 (4GB GDDR5/GDDR6 VRAM).</li>
-    <li><strong>Inference Capacity:</strong> Capable of running lightweight pose models such as <code>yolov8n-pose.pt</code> or <code>yolo11n-pose.pt</code> (~150MB VRAM footprint) at <strong>45–60 FPS</strong> locally using PyTorch/CUDA or ONNX Runtime.</li>
+    <li><strong>GPU:</strong> NVIDIA CUDA-class GPU, auto-detected at runtime (current development machine: NVIDIA GeForce RTX 4060 Laptop GPU, 8GB VRAM).</li>
+    <li><strong>Inference Capacity:</strong> Capable of running lightweight pose models such as <code>yolov8n-pose.pt</code> or <code>yolo11n-pose.pt</code> (~150MB VRAM footprint) at <strong>25–60 FPS</strong> locally using PyTorch/CUDA or ONNX Runtime, with automatic CPU fallback on machines without a CUDA GPU.</li>
     <li><strong>Client Deployment Environment:</strong> Public production deployed on Vercel Serverless (Node.js runtime, ephemeral execution, 10–15 second function timeouts, zero GPU).</li>
   </ul>
 </div>
@@ -266,7 +266,7 @@
   </li>
   <li>
     <strong>Tier 2: Hospital Edge Box (High-Performance Clinical Deployment):</strong>
-    In a dedicated hospital installation (e.g. GB Pant Hospital Ward A), a local PC with a GTX 1650 runs a Python background worker with <strong>YOLO-Pose + OpenCV</strong>. The local machine processes raw RTSP video, generates structured JSON event telemetry, and pushes only lightweight events to the ReJivan cloud portal.
+    In a dedicated hospital installation (e.g. GB Pant Hospital Ward A), a local PC with a CUDA-capable NVIDIA GPU runs a Python background worker with <strong>YOLO-Pose + OpenCV</strong>. The local machine processes raw RTSP video, generates structured JSON event telemetry, and pushes only lightweight events to the ReJivan cloud portal.
   </li>
 </ol>
 

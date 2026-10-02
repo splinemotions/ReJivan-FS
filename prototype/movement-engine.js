@@ -1,6 +1,6 @@
 // prototype/movement-engine.js
 // ReJivan Unified Motion Kinematics, Hypothesis Scoring, Counterfactual Reasoning & Sensor Fusion Engine
-// Compatible with both browser (MediaPipe / Optical Flow) and edge hardware (YOLO11-Pose via GTX 1650)
+// Compatible with both browser (MediaPipe / Optical Flow) and edge hardware (YOLO11-Pose via local CUDA GPU)
 // Architectural flow: OBSERVE -> RECONSTRUCT -> CORROBORATE -> REASON -> VERIFY -> RESPOND
 
 (function (root, factory) {

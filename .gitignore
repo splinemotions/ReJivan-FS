@@ -5,3 +5,8 @@ tools/autosaver.log
 *.onnx
 __pycache__/
 *.py[cod]
+
+# Local Python environment for the YOLO vision daemon (multi-GB CUDA wheels —
+# must never be committed/pushed)
+.venv/
+venv/

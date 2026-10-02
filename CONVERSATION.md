@@ -2273,3 +2273,44 @@ Why: Vercel functions are short-lived — no 24/7 process, no shared memory. The
 4. **Autonomous Emergency Call Ladder:** 30s resident verification check-in prompt -> Tier 1 Family -> Tier 2 Backup -> Tier 3 108/112 ambulance dispatch with GPS and vitals.
 5. **7 Reliability Safeguards:** Physiologic data validation, 0–100 confidence scoring, consecutive-reading verification (preventing single glitches from dialing 108), heartbeat disconnect detection, rate limiting, and immutable audit trails.
 6. **Prototype Honesty:** Clear delineation of what is 100% real (dashboards, login isolation, rules engine, call ladder logic, MAR schedule, vision kinematics) vs simulated (raw telemetry values, telco audio line connection, simulated camera feeds).
+
+---
+
+## 2026-10-01 (Clinical & Social Problem Space Expansion: Beyond Strokes & Falls)
+
+### What the user asked
+- "So basically our project is a system which is used to monitor old age patients to continuously detect any stroke any falls And etc And then if we did its one using camera and yellow ultralatics then it will correlate with whiters which will be For our case it will be stimulated but for a real thing it has to be a data of any variables which can detect all those vitals It's a med it should be a medical device which needed those vitals and can put in our system But for the demo purpose and for in the hack first will causeway demonstration will use stimulated datas Now tell What are the possible things we can say that we are solving like not just only stroke or and falls"
+
+### Core Clarifications & Value Proposition Articulated
+1. **Validation of User's Architectural Intuition:**
+   - Confirmed the dual-sensor correlation thesis: computer vision (YOLO pose/motion) combined with physiological vitals (wearables/devices) creates a multi-modal clinical guardian far superior to isolated cameras or single smartwatches.
+   - Re-affirmed prototype honesty: simulated telemetry for hackathon demo vs real CE/CDSCO-certified medical wearables/gateways (BLE/Wi-Fi/MQTT) in production.
+2. **Comprehensive Problem Space Solved by ReJivan (Beyond Just Strokes & Falls):**
+   - **Silent Hypoxia & Respiratory Failure:** Unnoticed dropping oxygen saturation in COPD/asthma/pneumonia/COVID patients, especially during sleep.
+   - **Cardiac Events & Arrhythmias:** Unheralded nocturnal bradycardia, extreme tachycardia, or malignant hypertension before acute cardiac arrest.
+   - **Diabetic Emergencies (Hypoglycemia / Hyperglycemic Crisis):** Hypoglycemic confusion/seizures/coma detected through sudden sweating/vital drift + motor agitation or immobility.
+   - **Post-Surgical & Post-Discharge Deterioration:** Preventing the "30-day revolving door" hospital readmissions by tracking physiological micro-trends before physical decompensation.
+   - **Medication Non-Adherence & Accidental Polypharmacy:** Preventing missed critical doses (BP/insulin) and dangerous accidental double-dosing in dementia/memory-impaired seniors.
+   - **Wandering, Disorientation & Bed-Exit Delirium:** Detecting unassisted bed departures and nocturnal wandering before head trauma occurs.
+   - **Caregiver Anxiety & "Sandwich Generation" Burnout:** Reducing the 24/7 hyper-vigilance burden on working adult children.
+   - **Hospital Bed Block & Healthcare Deserts:** Enabling early hospital discharge to home "Virtual Wards", freeing physical beds in secondary/tertiary centers like GB Pant Hospital, Port Blair.
+
+
+## 2026-10-02 22:41 — Live camera froze on first frame: duplicate YOLO daemons (FIXED)
+
+**User report:** "when I go to camera zones, and start streaming from my pc web cam it stops in the start frame, and decides a posture, it should do continuous monitoring?"
+
+**Diagnosis (evidence-based, not guessed):**
+- Found a live `pythonw.exe` daemon (PID 46432) started 23:50 by `start_yolo_silent.vbs` — the user HAD run the project.
+- Raw socket probe of port 5050: `127.0.0.1` CONNECTED but returned an EMPTY response (0 bytes); `localhost` took 2.01s (the known IPv6 stall); `::1` refused. So the server accepted connections but never answered — worse than a refused connection, because an accepted-but-silent socket never triggers the browser's `onError` retry.
+- Found TWO python processes both `LISTENING` on `0.0.0.0:5050`.
+- **Proved the mechanism:** starting a second daemon while the first ran bound the same port without any error. Python's `ThreadingHTTPServer` sets `allow_reuse_address = True` → `SO_REUSEADDR`, which on Windows (unlike Linux, where it only covers TIME_WAIT) permits a second live bind. Two daemons = two independent camera states = connections split at random = frozen stream + stalled telemetry.
+- Confirmed the fix target: a SINGLE clean daemon was rock solid (12/12 then 15/15 polls, ~10ms).
+
+**Fixes applied:**
+1. `tools/yolo_edge_sentinel.py` — added `SingleInstanceHTTPServer` (`allow_reuse_address = False`) + `_edge_port_in_use()` probe + `EDGE_PORT` (env-overridable). Duplicate launch refuses and exits 1 with a message pointing to `tools\stop_yolo.bat`. Guard runs BEFORE the model load → fails in ~2s rather than ~25s. A second check remains inside `run_server` to catch the port being taken during model load.
+2. `CameraZonesView.jsx` — added `lastTelemetryAtRef` + a stalled-stream watchdog: if telemetry goes quiet >5s while hardware streaming, bump `streamRetryKey` to force an MJPEG reconnect (self-healing; the old code only retried on `onError`, which a stalled-but-open stream never fires).
+
+**Verified:** daemon #1 stable (15/15 polls at 350ms), daemon #2 refused with exit 1 and exactly one listener left, watchdog present in the served bundle, daemon reports `NVIDIA GeForce RTX 4060 Laptop GPU` / `cuda: True`.
+
+**Note:** the user had run the project more than once (or `Start-ReJivan.bat` plus an earlier daemon), which is what produced the duplicate. Worth telling them: if the camera ever freezes again, run `tools\stop_yolo.bat` first and start once.

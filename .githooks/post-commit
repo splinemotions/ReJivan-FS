@@ -1,20 +1,47 @@
 #!/bin/sh
-# ReJivan auto-push + auto-deploy hook - runs after every git commit made in this folder.
-# SAFETY (important): this hook runs ONLY when this repository's remote origin is
-# the ReJivan GitHub repo (https://github.com/EternalFlames131/ReJivan.git).
-# If the folder is copied into another project, or its origin is anything else,
-# the hook does NOTHING and your other repositories are never touched.
-# If offline / not logged in, the commit stays safe locally; push later with `git push`.
+# ReJivan post-commit hook — auto-push / auto-deploy.
 #
-# AUTO-DEPLOY: if the Vercel CLI is available AND logged in (or a VERCEL_TOKEN is
-# set), the production deployment of prototype\ is updated automatically from here.
-# It NEVER blocks the commit and NEVER asks: if things are missing or offline it
-# prints a yellow note and exits 0. To disable deployment on this machine, create
-# the file .git/no-deploy (or set the env var REJIVAN_NO_DEPLOY=1).
+# CHANGED 2026-10-01: this is now OPT-IN and DISABLED BY DEFAULT.
+#
+# Previously every commit pushed to the public GitHub repo and redeployed the
+# live production site (rejivan2.vercel.app) automatically, with no review step.
+# An accidental keystroke could therefore reach judges' browsers. Commits are
+# now LOCAL ONLY until you deliberately publish them.
+#
+# TO ENABLE auto-push (and deploy) again on this machine, create the marker:
+#
+#     .git/allow-autopush
+#
+# or set the environment variable REJIVAN_AUTOPUSH=1.
+#
+# TO PUBLISH MANUALLY when you are ready:
+#
+#     git push                       # GitHub
+#     cd prototype && npm run deploy # live site
+#
+# SAFETY: even when enabled, this hook runs ONLY when this repository's origin is
+# the ReJivan-FS repo. If the folder is copied into another project, or its origin
+# is anything else, the hook does NOTHING and other repositories are never touched.
 
 ORIGIN=$(git config --get remote.origin.url 2>/dev/null || true)
 ALLOW="https://github.com/EternalFlames131/ReJivan-FS.git"
 ALLOW_ALT="git@github.com:EternalFlames131/ReJivan-FS.git"
+
+# ---- Opt-in gate -------------------------------------------------------------
+GATE=""
+ROOT_FOR_GATE=$(git rev-parse --git-dir 2>/dev/null || true)
+if [ -n "$ROOT_FOR_GATE" ] && [ -f "$ROOT_FOR_GATE/allow-autopush" ]; then
+  GATE="file"
+elif [ "$REJIVAN_AUTOPUSH" = "1" ]; then
+  GATE="env"
+fi
+
+if [ -z "$GATE" ]; then
+  printf '\033[36m[ReJivan-FS] Commit saved LOCALLY. Auto-push is off (default).\033[0m\n'
+  printf '\033[36m[ReJivan-FS] Publish when ready:  git push   |   cd prototype && npm run deploy\033[0m\n'
+  printf '\033[36m[ReJivan-FS] To re-enable auto-push:  touch .git/allow-autopush\033[0m\n'
+  exit 0
+fi
 
 if [ "$ORIGIN" != "$ALLOW" ] && [ "$ORIGIN" != "$ALLOW_ALT" ]; then
   printf '\033[33m[ReJivan-FS] SAFETY: origin is not the ReJivan-FS repo - auto-push/deploy SKIPPED (commit is safe, no other repo touched).\033[0m\n'

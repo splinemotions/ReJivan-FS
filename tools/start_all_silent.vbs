@@ -5,11 +5,13 @@ scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 rootDir = fso.GetParentFolderName(scriptDir)
 WshShell.CurrentDirectory = rootDir
 
-pythonExe = "pythonw.exe"
-If fso.FileExists("C:\Program Files\Python312\pythonw.exe") Then
-    pythonExe = """C:\Program Files\Python312\pythonw.exe"""
-ElseIf fso.FileExists("C:\Program Files\Python312\python.exe") Then
-    pythonExe = """C:\Program Files\Python312\python.exe"""
+' Prefer the project's local venv (CUDA torch + ultralytics).
+' The system Python here is 3.14 without torch, so the venv is required for GPU inference.
+venvPy = rootDir & "\.venv\Scripts\pythonw.exe"
+If fso.FileExists(venvPy) Then
+    pythonExe = """" & venvPy & """"
+Else
+    pythonExe = "pythonw.exe"
 End If
 
 nodeExe = "node.exe"
@@ -23,4 +25,3 @@ WshShell.Run pythonExe & " """ & rootDir & "\tools\yolo_edge_sentinel.py""", 0, 
 ' 2. Wait 1 second then start ReJivan Web Server (Port 8080)
 WScript.Sleep 1000
 WshShell.Run nodeExe & " """ & rootDir & "\prototype\server.js""", 0, False
-
