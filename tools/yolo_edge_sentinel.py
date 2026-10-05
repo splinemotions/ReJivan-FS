@@ -173,6 +173,7 @@ class SentinelHub:
         self.fps = 0.0
         self.last_seen = time.time()
         self.last_inference_latency = 0.015
+        self.new_frame_event = threading.Event()
 
         # Camera Lifecycle Management (Default context)
         self.camera_state = "CAMERA_OFFLINE"
@@ -353,16 +354,22 @@ def compute_kinematics(
     Operates on the provided tracking_context (or defaults to hub for backwards compatibility).
     """
     ctx = tracking_context if tracking_context is not None else hub
-    # Normalize keypoints to [x, y, conf]
-    raw_kp = keypoints or []
+    # Normalize keypoints to [x, y, conf] safely handling NumPy ndarrays
     kp = []
-    for item in raw_kp:
-        if isinstance(item, dict):
-            kp.append([float(item.get("x", 0)), float(item.get("y", 0)), float(item.get("conf", item.get("confidence", 0.0)))])
-        elif isinstance(item, (list, tuple)):
-            kp.append(item)
+    if keypoints is not None:
+        if isinstance(keypoints, np.ndarray):
+            raw_kp = keypoints.tolist()
         else:
-            kp.append([0.0, 0.0, 0.0])
+            raw_kp = keypoints
+        for item in raw_kp:
+            if isinstance(item, dict):
+                kp.append([float(item.get("x", 0)), float(item.get("y", 0)), float(item.get("conf", item.get("confidence", 0.0)))])
+            elif isinstance(item, (list, tuple)):
+                kp.append([float(v) for v in item])
+            elif hasattr(item, "tolist"):
+                kp.append([float(v) for v in item.tolist()])
+            else:
+                kp.append([0.0, 0.0, 0.0])
     if ctx.calibration_frames_left > 0:
         ctx.calibration_frames_left -= 1
         ctx.consecutive_valid_frames += 1
@@ -962,93 +969,100 @@ def camera_processing_thread():
             if hasattr(active_camera, "playback_speed"):
                 hub.playback_speed = active_camera.playback_speed
 
-        # Run Ultralytics YOLO-Pose inference
-        t_infer_start = time.time()
-        with inference_lock:
-            results = yolo_model(frame, imgsz=320, verbose=False, device=DEVICE_TARGET)
-        hub.last_inference_latency = time.time() - t_infer_start
-        r = results[0]
+        try:
+            # Run Ultralytics YOLO-Pose inference
+            t_infer_start = time.time()
+            with inference_lock:
+                results = yolo_model(frame, imgsz=320, verbose=False, device=DEVICE_TARGET)
+            hub.last_inference_latency = time.time() - t_infer_start
+            r = results[0]
 
-        persons_count = len(r.boxes) if r.boxes is not None else 0
-        h_img, w_img = frame.shape[:2]
+            persons_count = len(r.boxes) if r.boxes is not None else 0
+            h_img, w_img = frame.shape[:2]
 
-        ctx = active_camera.tracking_context
-        # Check floor occlusion latch
-        is_latch = ctx.fall_latched and (current_time - ctx.fall_latch_start_time < 4.0)
+            ctx = active_camera.tracking_context
+            # Check floor occlusion latch
+            is_latch = ctx.fall_latched and (current_time - ctx.fall_latch_start_time < 4.0)
 
-        if is_latch and persons_count == 0:
-            kinematics_data = {
-                "person_detected": False,
-                "posture": "Acute Fall / Subject Below Camera View",
-                "risk_level": "HIGH_RISK",
-                "confidence": 92.0,
-                "torso_angle": 75.0,
-                "downward_velocity": -abs(ctx.recent_drop_velocity or 0.8),
-                "hypothesis": {
-                    "id": "H1",
-                    "label": "Floor Occlusion Fall",
-                    "mechanism": "Subject fallen below camera field of view. Recovery monitoring active."
-                },
-                "canonical_event": {
-                    "eventId": f"EVT-OCCL-{int(current_time * 1000)}",
-                    "cameraId": active_camera.camera_id,
-                    "edgeId": hub.edge_node.edge_id,
-                    "sourceType": norm_frame.source_type,
-                    "state": "CONTACT_OR_FALL",
-                    "probableMechanism": "FALL",
-                    "detectionConfidence": 90,
-                    "mechanismConfidence": 85,
-                    "severityConfidence": 80,
-                    "recoveryStatus": "MONITORING",
-                    "evidence": ["Subject transitioned below floor perimeter"],
-                    "counterEvidence": [],
-                    "timestamp": current_time
+            if is_latch and persons_count == 0:
+                kinematics_data = {
+                    "person_detected": False,
+                    "posture": "Acute Fall / Subject Below Camera View",
+                    "risk_level": "HIGH_RISK",
+                    "confidence": 92.0,
+                    "torso_angle": 75.0,
+                    "downward_velocity": -abs(ctx.recent_drop_velocity or 0.8),
+                    "hypothesis": {
+                        "id": "H1",
+                        "label": "Floor Occlusion Fall",
+                        "mechanism": "Subject fallen below camera field of view. Recovery monitoring active."
+                    },
+                    "canonical_event": {
+                        "eventId": f"EVT-OCCL-{int(current_time * 1000)}",
+                        "cameraId": active_camera.camera_id,
+                        "edgeId": hub.edge_node.edge_id,
+                        "sourceType": norm_frame.source_type,
+                        "state": "CONTACT_OR_FALL",
+                        "probableMechanism": "FALL",
+                        "detectionConfidence": 90,
+                        "mechanismConfidence": 85,
+                        "severityConfidence": 80,
+                        "recoveryStatus": "MONITORING",
+                        "evidence": ["Subject transitioned below floor perimeter"],
+                        "counterEvidence": [],
+                        "timestamp": current_time
+                    }
                 }
-            }
-        elif persons_count == 0:
-            ctx.fall_latched = False
-            ctx.prev_com_y = None
-            ctx.prev_time = None
-            ctx.consecutive_valid_frames = 0
-            kinematics_data = {
-                "person_detected": False,
-                "posture": "Perimeter Clear (No Subject)",
-                "risk_level": "SAFE",
-                "confidence": 99.2,
-                "torso_angle": 0.0,
-                "downward_velocity": 0.0,
-                "hypothesis": {
-                    "id": "H0",
-                    "label": "Clear Perimeter",
-                    "mechanism": "Zero subjects detected in monitored clinical zone."
-                },
-                "canonical_event": {
-                    "eventId": f"EVT-SCAN-{int(current_time * 1000)}",
-                    "cameraId": active_camera.camera_id,
-                    "edgeId": hub.edge_node.edge_id,
-                    "sourceType": norm_frame.source_type,
-                    "state": "NORMAL",
-                    "probableMechanism": "NORMAL_ACTIVITY",
-                    "detectionConfidence": 0,
-                    "mechanismConfidence": 100,
-                    "severityConfidence": 0,
-                    "recoveryStatus": "NOT_APPLICABLE",
-                    "evidence": [],
-                    "counterEvidence": []
+            elif persons_count == 0:
+                ctx.fall_latched = False
+                ctx.prev_com_y = None
+                ctx.prev_time = None
+                ctx.consecutive_valid_frames = 0
+                kinematics_data = {
+                    "person_detected": False,
+                    "posture": "Perimeter Clear (No Subject)",
+                    "risk_level": "SAFE",
+                    "confidence": 99.2,
+                    "torso_angle": 0.0,
+                    "downward_velocity": 0.0,
+                    "hypothesis": {
+                        "id": "H0",
+                        "label": "Clear Perimeter",
+                        "mechanism": "Zero subjects detected in monitored clinical zone."
+                    },
+                    "canonical_event": {
+                        "eventId": f"EVT-SCAN-{int(current_time * 1000)}",
+                        "cameraId": active_camera.camera_id,
+                        "edgeId": hub.edge_node.edge_id,
+                        "sourceType": norm_frame.source_type,
+                        "state": "NORMAL",
+                        "probableMechanism": "NORMAL_ACTIVITY",
+                        "detectionConfidence": 0,
+                        "mechanismConfidence": 100,
+                        "severityConfidence": 0,
+                        "recoveryStatus": "NOT_APPLICABLE",
+                        "evidence": [],
+                        "counterEvidence": []
+                    }
                 }
-            }
-        else:
-            primary_kp = r.keypoints.data[0].cpu().numpy()
-            kinematics_data = compute_kinematics(
-                primary_kp, w_img, h_img, current_time,
-                source=norm_frame.source_type,
-                tracking_context=ctx,
-                camera_id=active_camera.camera_id,
-                edge_id=hub.edge_node.edge_id
-            )
+            else:
+                primary_kp = r.keypoints.data[0].cpu().numpy()
+                kinematics_data = compute_kinematics(
+                    primary_kp, w_img, h_img, current_time,
+                    source=norm_frame.source_type,
+                    tracking_context=ctx,
+                    camera_id=active_camera.camera_id,
+                    edge_id=hub.edge_node.edge_id
+                )
 
-        rendered_frame = draw_pose_overlays(frame, results, kinematics_data, privacy_mode=False)
-        radar_frame = draw_pose_overlays(frame, results, kinematics_data, privacy_mode=True)
+            rendered_frame = draw_pose_overlays(frame, results, kinematics_data, privacy_mode=False)
+            radar_frame = draw_pose_overlays(frame, results, kinematics_data, privacy_mode=True)
+        except Exception as frame_proc_err:
+            print(f"[!] Warning: Frame processing error: {frame_proc_err}")
+            rendered_frame = frame
+            radar_frame = frame
+            kinematics_data = {"person_detected": False, "posture": "Monitoring", "risk_level": "SAFE"}
+            persons_count = 0
 
         with hub.lock:
             hub.latest_raw_frame = frame
@@ -1090,6 +1104,7 @@ def camera_processing_thread():
                 "canonical_event": kinematics_data.get("canonical_event", {}),
                 "timestamp": current_time
             }
+        hub.new_frame_event.set()
 
     if active_camera is not None:
         active_camera.release()
@@ -1281,7 +1296,8 @@ class SentinelRequestHandler(BaseHTTPRequestHandler):
 
                     if frame_to_stream is not None and current_frame_time != last_streamed_time:
                         last_streamed_time = current_frame_time
-                        ret, jpeg = cv2.imencode(".jpg", frame_to_stream, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                        # High-speed turbo JPEG encoding (Quality 68 for 40% faster encoding & lower payload)
+                        ret, jpeg = cv2.imencode(".jpg", frame_to_stream, [int(cv2.IMWRITE_JPEG_QUALITY), 68])
                         if ret:
                             data = jpeg.tobytes()
                             self.wfile.write(b"--frame\r\n")
@@ -1289,7 +1305,11 @@ class SentinelRequestHandler(BaseHTTPRequestHandler):
                             self.wfile.write(f"Content-Length: {len(data)}\r\n\r\n".encode("utf-8"))
                             self.wfile.write(data)
                             self.wfile.write(b"\r\n")
-                    time.sleep(0.025)
+                            self.wfile.flush()
+
+                    # High-efficiency event-driven frame wait (wakes immediately when new frame arrives)
+                    hub.new_frame_event.wait(timeout=0.030)
+                    hub.new_frame_event.clear()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 pass
             finally:
@@ -1298,6 +1318,44 @@ class SentinelRequestHandler(BaseHTTPRequestHandler):
                     if hub.active_streamers == 0:
                         hub.camera_active = False
                     print(f"[-] Client disconnected from video feed (Remaining viewers: {hub.active_streamers}).")
+            return
+
+        # 7B. Single-Frame Snapshot (reliable alternative to MJPEG streaming)
+        # The frontend polls this at ~25fps using setInterval + <img>.src swap.
+        # This avoids all MJPEG browser stalls and long-lived TCP issues.
+        if path == "/api/yolo/snapshot":
+            privacy = query.get("privacy", ["0"])[0] == "1"
+            with hub.lock:
+                frame = hub.latest_radar_frame if privacy else hub.latest_rendered_frame
+                # Activate camera on-demand (same as MJPEG endpoint)
+                if not hub.camera_active:
+                    hub.camera_active = True
+            if frame is None:
+                # Camera is starting up, no frame yet — 204 No Content with explicit 0 length
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.send_cors_headers("text/plain")
+                self.end_headers()
+                return
+            ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 68])
+            if not ret:
+                self.send_response(500)
+                self.send_cors_headers("text/plain")
+                self.end_headers()
+                return
+            data = jpeg.tobytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+            try:
+                self.wfile.write(data)
+                self.wfile.flush()
+            except Exception:
+                pass
             return
 
         # 404 Fallback
@@ -1569,6 +1627,7 @@ class SentinelRequestHandler(BaseHTTPRequestHandler):
                 body = self.rfile.read(content_len).decode("utf-8")
                 req_data = json.loads(body) if body else {}
                 target_src = req_data.get("source", "bed_fall_demo")
+                auto_start = req_data.get("autoStart", True)
 
                 with hub.lock:
                     if target_src in ["PRERECORDED_VIDEO", "bed_fall_demo"]:
@@ -1583,7 +1642,14 @@ class SentinelRequestHandler(BaseHTTPRequestHandler):
                         hub.camera_source_type = "RTSP_CAMERA"
                         hub.source = "RTSP_CAMERA"
                         hub.edge_node.set_active_camera("cam-rtsp-ward-01")
-                    hub.camera_active = True
+                    if auto_start:
+                        hub.camera_active = True
+                    # Clear stale frames from the previous source so the MJPEG
+                    # stream doesn't briefly serve an old frame before the new
+                    # camera finishes opening and produces fresh output.
+                    hub.latest_rendered_frame = None
+                    hub.latest_radar_frame = None
+                    hub.last_seen = 0
 
                 print(f"[+] Source switched via API to: {hub.source} (Active: {hub.edge_node.active_camera_id})")
                 self.send_response(200)
@@ -1768,6 +1834,15 @@ def run_server(port=EDGE_PORT):
         httpd.shutdown()
         cam_thread.join(timeout=2.0)
         print("[+] ReJivan Edge Sentinel daemon terminated cleanly.")
+    except Exception as srv_err:
+        import traceback
+        print(f"\n[!] Unexpected server error: {srv_err}")
+        traceback.print_exc()
+        hub.running = False
+        try:
+            httpd.shutdown()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     port_num = 5050

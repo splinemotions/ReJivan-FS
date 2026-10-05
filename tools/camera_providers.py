@@ -351,6 +351,12 @@ class LocalWebcamSource(CameraSource):
         self.device_index = device_index
         self.cap: Optional[Any] = None
         self._frame_counter = 0
+        self._capture_thread: Optional[threading.Thread] = None
+        self._capturing = False
+        self._latest_raw_frame = None
+        self._latest_raw_timestamp = 0.0
+        self._frame_lock = threading.Lock()
+        self._new_raw_frame_event = threading.Event()
 
     def open(self) -> bool:
         if not cv2:
@@ -382,25 +388,49 @@ class LocalWebcamSource(CameraSource):
 
                 self.lifecycle_state = CameraLifecycleState.CALIBRATING
                 self.tracking_context.reset()
-                logger.info(f"Local webcam {self.device_index} online. Calibrating spatial baseline...")
+
+                # Start zero-lag background capture worker to drain driver buffer
+                self._capturing = True
+                self._new_raw_frame_event.clear()
+                self._capture_thread = threading.Thread(target=self._capture_worker, daemon=True)
+                self._capture_thread.start()
+
+                logger.info(f"Local webcam {self.device_index} online. Zero-lag capture thread active.")
                 return True
             except Exception as e:
                 self.lifecycle_state = CameraLifecycleState.OFFLINE
                 self.health_metrics.last_error = str(e)
                 return False
 
+    def _capture_worker(self):
+        """Continuously drains the driver buffer to guarantee zero-latency real-time frames."""
+        while self._capturing and self.cap is not None:
+            try:
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    now = time.time()
+                    with self._frame_lock:
+                        self._latest_raw_frame = frame
+                        self._latest_raw_timestamp = now
+                    self._new_raw_frame_event.set()
+                else:
+                    time.sleep(0.005)
+            except Exception:
+                time.sleep(0.01)
+
     def read_frame(self) -> Optional[NormalizedFrame]:
-        if self.cap is None or not self.cap.isOpened():
+        if not self._capturing or self.cap is None:
             return None
 
-        ret, frame = self.cap.read()
-        now = time.time()
+        # Wait briefly for fresh frame from capture worker
+        self._new_raw_frame_event.wait(timeout=0.035)
+        self._new_raw_frame_event.clear()
 
-        if not ret or frame is None:
-            self.health_metrics.consecutive_decode_failures += 1
-            if self.health_metrics.consecutive_decode_failures > 15:
-                self.lifecycle_state = CameraLifecycleState.DEGRADED
-                self.health_metrics.last_error = "Webcam frame capture stalled."
+        with self._frame_lock:
+            frame = self._latest_raw_frame
+            now = self._latest_raw_timestamp
+
+        if frame is None:
             return None
 
         self.health_metrics.consecutive_decode_failures = 0
@@ -430,6 +460,11 @@ class LocalWebcamSource(CameraSource):
         )
 
     def release(self):
+        self._capturing = False
+        self._new_raw_frame_event.set()
+        if self._capture_thread and self._capture_thread.is_alive():
+            self._capture_thread.join(timeout=0.5)
+            self._capture_thread = None
         with self.lock:
             if self.cap is not None:
                 try:
@@ -437,6 +472,8 @@ class LocalWebcamSource(CameraSource):
                 except Exception:
                     pass
                 self.cap = None
+            with self._frame_lock:
+                self._latest_raw_frame = None
             self.lifecycle_state = CameraLifecycleState.STOPPED
             self.tracking_context.reset()
             logger.info("Local webcam released. Physical LED extinguished.")

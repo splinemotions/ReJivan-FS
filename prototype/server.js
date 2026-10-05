@@ -16,6 +16,8 @@
  */
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
+const { spawn, execSync } = require("child_process");
 const express = require("express");
 const cors = require("cors");
 
@@ -864,9 +866,227 @@ app.post("/api/edge/heartbeat", (req, res) => {
   res.json({ ok: true, ack: Date.now() });
 });
 
-// ---- System Infrastructure Health (7-Tier Status Hierarchy) ----------------
-// Local YOLO edge daemon (may or may not be running on this host).
+// ---- Local YOLO Edge Sentinel Process Manager & Reverse Proxy -------------
 const EDGE_DAEMON_BASE = process.env.REJIVAN_EDGE_BASE || "http://127.0.0.1:5050";
+let yoloChildProcess = null;
+let isStartingYolo = false;
+
+async function isEdgeDaemonAlive(timeoutMs = 1200) {
+  try {
+    const res = await fetch(`${EDGE_DAEMON_BASE}/api/yolo/status`, {
+      signal: AbortSignal.timeout ? AbortSignal.timeout(timeoutMs) : undefined
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function startEdgeDaemon() {
+  if (process.env.VERCEL) {
+    return { ok: false, error: "Cloud Vercel serverless environment does not support local edge Python daemon." };
+  }
+  if (await isEdgeDaemonAlive()) {
+    console.log("[ReJivan] YOLO Edge Sentinel is already online and responding on port 5050.");
+    return { ok: true, status: "ALREADY_RUNNING" };
+  }
+  if (isStartingYolo) {
+    return { ok: true, status: "STARTING_IN_PROGRESS" };
+  }
+  isStartingYolo = true;
+
+  try {
+    const rootDir = path.resolve(__dirname, "..");
+    const venvPy = path.join(rootDir, ".venv", "Scripts", "python.exe");
+    const pyExe = fs.existsSync(venvPy) ? venvPy : "python";
+    const sentinelScript = path.join(rootDir, "tools", "yolo_edge_sentinel.py");
+
+    if (!fs.existsSync(sentinelScript)) {
+      isStartingYolo = false;
+      throw new Error(`Sentinel script not found at ${sentinelScript}`);
+    }
+
+    // Windows stale port cleanup: if port 5050 is held by an unresponsive zombie process, clear it first
+    if (process.platform === "win32") {
+      try {
+        const netstatOutput = execSync(`netstat -aon | findstr ":5050" | findstr "LISTENING"`, { encoding: "utf8" });
+        const lines = netstatOutput.trim().split("\n");
+        for (const line of lines) {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (pid && /^\d+$/.test(pid) && pid !== "0") {
+            console.log(`[ReJivan] Freeing stale port 5050 (terminating zombie PID ${pid})...`);
+            execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
+          }
+        }
+      } catch (e) {}
+    }
+
+    console.log(`[ReJivan] Auto-launching YOLO Edge Sentinel using ${pyExe}...`);
+    yoloChildProcess = spawn(pyExe, ["-u", sentinelScript], {
+      cwd: rootDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: false
+    });
+
+    const toolsDir = path.join(rootDir, "tools");
+    const startupLog = path.join(toolsDir, "yolo_startup.log");
+    const errorLog = path.join(toolsDir, "yolo_error.log");
+
+    yoloChildProcess.stdout.on("data", (chunk) => {
+      const text = chunk.toString();
+      if (text.includes("Serving") || text.includes("Hardware Platform") || text.includes("CUDA") || text.includes("Ready")) {
+        console.log(`[YOLO Sentinel] ${text.trim()}`);
+      }
+      fs.appendFile(startupLog, text, () => {});
+    });
+
+    yoloChildProcess.stderr.on("data", (chunk) => {
+      const text = chunk.toString();
+      fs.appendFile(errorLog, text, () => {});
+    });
+
+    yoloChildProcess.on("exit", (code, signal) => {
+      console.log(`[YOLO Sentinel] Daemon stopped (code: ${code}, signal: ${signal})`);
+      yoloChildProcess = null;
+    });
+
+    // Wait up to 10 seconds for it to become ready
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (await isEdgeDaemonAlive(500)) {
+        console.log("[ReJivan] YOLO Edge Sentinel is now ONLINE and ready on port 5050!");
+        isStartingYolo = false;
+        return { ok: true, status: "ONLINE", port: 5050 };
+      }
+    }
+
+    isStartingYolo = false;
+    return { ok: true, status: "INITIALIZING", port: 5050, note: "Model weights are loading into VRAM" };
+  } catch (err) {
+    isStartingYolo = false;
+    throw err;
+  }
+}
+
+async function stopEdgeDaemon() {
+  if (yoloChildProcess && !yoloChildProcess.killed) {
+    try {
+      if (process.platform === "win32") {
+        execSync(`taskkill /F /T /PID ${yoloChildProcess.pid}`, { stdio: "ignore" });
+      } else {
+        yoloChildProcess.kill("SIGTERM");
+      }
+    } catch (e) {}
+    yoloChildProcess = null;
+  }
+  if (process.platform === "win32") {
+    try {
+      const netstatOutput = execSync(`netstat -aon | findstr ":5050" | findstr "LISTENING"`, { encoding: "utf8" });
+      const lines = netstatOutput.trim().split("\n");
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && /^\d+$/.test(pid) && pid !== "0") {
+          execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
+        }
+      }
+    } catch (e) {}
+  }
+  return { ok: true, status: "STOPPED" };
+}
+
+function cleanupYoloOnExit() {
+  if (yoloChildProcess && !yoloChildProcess.killed) {
+    try {
+      if (process.platform === "win32") {
+        execSync(`taskkill /F /T /PID ${yoloChildProcess.pid}`, { stdio: "ignore" });
+      } else {
+        yoloChildProcess.kill();
+      }
+    } catch (e) {}
+  }
+}
+
+process.on("SIGINT", () => { cleanupYoloOnExit(); process.exit(0); });
+process.on("SIGTERM", () => { cleanupYoloOnExit(); process.exit(0); });
+process.on("exit", () => { cleanupYoloOnExit(); });
+
+// Daemon Control Endpoints
+app.get("/api/yolo/daemon/status", async (req, res) => {
+  const alive = await isEdgeDaemonAlive(1000);
+  let details = null;
+  if (alive) {
+    try {
+      const probe = await fetch(`${EDGE_DAEMON_BASE}/api/yolo/status`, {
+        signal: AbortSignal.timeout ? AbortSignal.timeout(1200) : undefined
+      });
+      if (probe.ok) details = await probe.json();
+    } catch (e) {}
+  }
+  res.json({
+    ok: true,
+    running: alive,
+    childPid: yoloChildProcess ? yoloChildProcess.pid : null,
+    details
+  });
+});
+
+app.post("/api/yolo/daemon/start", async (req, res) => {
+  try {
+    const result = await startEdgeDaemon();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post("/api/yolo/daemon/stop", async (req, res) => {
+  try {
+    const result = await stopEdgeDaemon();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Reverse-proxy /api/yolo/* to the Python YOLO Edge Daemon (port 5050)
+app.all("/api/yolo/*", (req, res) => {
+  const targetUrl = new URL(req.originalUrl, EDGE_DAEMON_BASE);
+  const isStream = req.path.includes("video_feed");
+
+  const options = {
+    method: req.method,
+    headers: { ...req.headers, host: targetUrl.host },
+    timeout: isStream ? 0 : 5000
+  };
+
+  const proxyReq = http.request(targetUrl, options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+
+  proxyReq.on("error", (err) => {
+    if (!res.headersSent) {
+      res.status(503).json({
+        ok: false,
+        error: "yolo_daemon_offline",
+        message: "YOLO Edge Sentinel is not reachable on port 5050. Start it via POST /api/yolo/daemon/start or tools/run_yolo.bat",
+        detail: err.message
+      });
+    }
+  });
+
+  if (["POST", "PUT", "PATCH"].includes(req.method) && req.body) {
+    const bodyData = JSON.stringify(req.body);
+    proxyReq.setHeader("Content-Type", "application/json");
+    proxyReq.setHeader("Content-Length", Buffer.byteLength(bodyData));
+    proxyReq.write(bodyData);
+  }
+  proxyReq.end();
+});
+
+// ---- System Infrastructure Health (7-Tier Status Hierarchy) ----------------
 
 app.get(["/api/system/health", "/api/system-health"], async (req, res) => {
   const now = Date.now();
@@ -1006,8 +1226,17 @@ module.exports = app;
 
 if (require.main === module) {
   const PORT = process.env.PORT || 8080;
-  app.listen(PORT, () => {
+  app.listen(PORT, async () => {
     console.log(`ReJivan prototype running at http://localhost:${PORT}`);
     console.log(`Demo accounts: asharma@demo.in / rprakash@demo.in / wardnurse@demo.in  (password: demo123)`);
+
+    // On local machine (non-serverless), automatically launch YOLO Edge Sentinel if not already active
+    if (!process.env.VERCEL && !process.env.REJIVAN_NO_YOLO) {
+      try {
+        await startEdgeDaemon();
+      } catch (err) {
+        console.warn(`[ReJivan] YOLO auto-start notice: ${err.message}`);
+      }
+    }
   });
 }

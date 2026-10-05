@@ -1,0 +1,23 @@
+{
+  "name": "rejivan",
+  "version": "1.0.0",
+  "description": "ReJivan — A Personal Nurse for Every Family (HSC 2027)",
+  "scripts": {
+    "start": "node prototype/server.js",
+    "dev": "node prototype/server.js",
+    "yolo": "powershell -ExecutionPolicy Bypass -File tools/run_yolo.ps1",
+    "stop": "cmd /c tools\\stop_all.bat",
+    "stop:yolo": "cmd /c tools\\stop_yolo.bat",
+    "build:web": "node tools/build_web.js",
+    "build:pdf": "powershell -ExecutionPolicy Bypass -File tools/build_pdf.ps1"
+  },
+  "keywords": [
+    "healthcare",
+    "rejivan",
+    "yolo",
+    "ultralytics",
+    "cuda",
+    "hackathon"
+  ],
+  "license": "MIT"
+}
