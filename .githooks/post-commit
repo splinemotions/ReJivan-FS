@@ -43,10 +43,14 @@ if [ -z "$GATE" ]; then
   exit 0
 fi
 
-if [ "$ORIGIN" != "$ALLOW" ] && [ "$ORIGIN" != "$ALLOW_ALT" ]; then
-  printf '\033[33m[ReJivan-FS] SAFETY: origin is not the ReJivan-FS repo - auto-push/deploy SKIPPED (commit is safe, no other repo touched).\033[0m\n'
-  exit 0
-fi
+case "$ORIGIN" in
+  "https://github.com/EternalFlames131/ReJivan-FS.git"|"git@github.com:EternalFlames131/ReJivan-FS.git"|"https://github.com/splinemotions/ReJivan-FS.git"|"git@github.com:splinemotions/ReJivan-FS.git")
+    ;;
+  *)
+    printf '\033[33m[ReJivan-FS] SAFETY: origin is not a known ReJivan-FS repo - auto-push/deploy SKIPPED (commit is safe, no other repo touched).\033[0m\n'
+    exit 0
+    ;;
+esac
 
 if git push --quiet 2>/dev/null; then
   printf '\033[32m[ReJivan-FS] pushed to GitHub automatically (ReJivan-FS repo only).\033[0m\n'

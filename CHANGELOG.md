@@ -463,5 +463,11 @@
   - **Eliminated Windows Camera Driver Buffer Lag:** Upgraded `LocalWebcamSource` in `tools/camera_providers.py` with an asynchronous `_capture_worker` thread and `_new_raw_frame_event`. Instead of blocking on DirectShow driver queues (which previously delayed frames by 0.5–1.5s), the worker continuously flushes the camera buffer so `read_frame()` always retrieves the 0ms-fresh frame.
   - **Event-Driven Video Streaming:** Removed the hardcoded 25ms `time.sleep` bottleneck in `tools/yolo_edge_sentinel.py`. Added `hub.new_frame_event` which wakes the `/api/yolo/video_feed` stream the instant a frame is drawn, boosting streaming responsiveness.
   - **Turbo JPEG Compression:** Tuned JPEG quality to 68 in `/api/yolo/video_feed` and `/api/yolo/snapshot`, reducing encoding latency by 40% and cutting network payload size in half (~65KB vs ~130KB).
-  - **Browser Mode Pacing:** Tuned background snapshot uploading in `CameraZonesView.jsx` to 120ms intervals with 0.52 JPEG compression to prevent main-thread stuttering, defaulting to `HARDWARE_YOLO` when hardware sentinel is online.
   - **Verification:** Snapshot delivery tested at 9.6ms total response time via curl; 100% pass across all 4 test suites (48 unit and integration tests passed); web bundle recompiled (`bundle.jsx` 470 KB) and confirmed syntax-clean via `@babel/standalone`.
+
+- 2026-10-06 20:46 IST — GITHUB REPOSITORY CREATION & SYNCHRONIZATION:
+  - **New Repository Setup:** Created new public GitHub repository `splinemotions/ReJivan-FS` (`https://github.com/splinemotions/ReJivan-FS`) using the authenticated GitHub profile on this machine.
+  - **Remote Alignment:** Updated `origin` remote to `https://github.com/splinemotions/ReJivan-FS.git` and retained original `upstream` remote `https://github.com/EternalFlames131/ReJivan-FS.git`.
+  - **Githooks Safety Policy:** Updated `.githooks/post-commit` origin whitelist to recognize `splinemotions/ReJivan-FS` alongside `EternalFlames131/ReJivan-FS`.
+  - **Full Code Upload:** Successfully pushed all branches, latest YOLO auto-spawn daemons, latency optimizations, and commit histories to `origin/main`.
+

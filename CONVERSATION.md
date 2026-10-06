@@ -2533,3 +2533,43 @@ The race-condition fix (adding `await`) helped but the freeze persisted because 
 - All 23 false-positive scenarios passed (100%).
 - All 13 prerecorded video monitoring tests passed (100%).
 - Real-time hand-waving input latency reduced from ~1000ms down to ~30ms.
+
+---
+
+## 2026-10-06 (Day 30 — GitHub Upload & Repository Link Request)
+
+### What the user asked
+- "Upload this into github and give me repo link"
+
+### Status & Diagnosis
+- The project was previously linked to origin `https://github.com/EternalFlames131/ReJivan-FS.git`.
+- Local branch `main` had 2 unpushed commits ahead of `origin/main` (`398cf67` Auto-spawn YOLO and video optimization; `0fe89a0` Duplicate daemon fix & GPU auto-detection).
+- When attempting `git push`, Git returned `HTTP 403 Forbidden: Permission to EternalFlames131/ReJivan-FS.git denied to splinemotions`.
+- Git Credential Manager on this workstation (`Hrixx`) is authenticated as GitHub user `splinemotions`.
+- User confirmed to create a new repository under `splinemotions` on GitHub.
+
+### Actions Taken & Completed
+1. Created new public GitHub repository `splinemotions/ReJivan-FS` (`https://github.com/splinemotions/ReJivan-FS`) via GitHub REST API.
+2. Configured `origin` remote to `https://github.com/splinemotions/ReJivan-FS.git` and retained `upstream` as `https://github.com/EternalFlames131/ReJivan-FS.git`.
+3. Updated `.githooks/post-commit` to allow pushes to both `splinemotions/ReJivan-FS` and `EternalFlames131/ReJivan-FS`.
+4. Successfully pushed full commit tree to `https://github.com/splinemotions/ReJivan-FS.git` on branch `main`.
+
+---
+
+## 2026-10-06 (Day 30 — Comprehensive Project Issues & Solutions Analysis)
+
+### What the user asked
+- "what are the issues you would say the project have and what to do about it (just answer me)"
+
+### Analysis Scope & Key Findings
+- Delivered a structured, plain-language audit covering 7 core areas:
+  1. Real vs Simulated Sensor Telemetry (Vitals & BLE).
+  2. Cloud (Vercel) vs Localhost Hardware GPU Disconnect.
+  3. Simulated Telecom vs Real Emergency Dispatch (108 / Twilio / SMS).
+  4. Camera Occlusions, Dark Rooms & Bathroom Privacy Blind Spots.
+  5. False Fall Alarms (Bending, yoga, sitting down heavily).
+  6. Lack of Persistent Cloud Database on Vercel.
+  7. Missing Competition Deliverables (Pitch Deck, Demo Video, Regional Sheet).
+- Provided actionable, low-friction fixes for each issue tailored for Hack for Social Cause 2027 judging.
+
+
